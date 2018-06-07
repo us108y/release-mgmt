@@ -1,0 +1,66 @@
+stages:
+    - buildsonar
+    - rpm
+    - single domain - deploy
+    - single domain - test
+
+buildsonar:
+  stage: buildsonar
+  only:
+    - pop-master
+    - pop-sp-integrate
+    - /^pop-sp[0-9][0-9][0-9]-dv/ 
+    - /^pop-sp[0-9][0-9][0-9]-maintenance/
+    - tags
+  script:
+    - bash build/build.sh
+    - export PATH=/sonar-scanner-3.1.0.1141-linux/bin:$PATH
+    - sonar-scanner  -Dsonar.host.url=${sonar_url} -Dsonar.login=${sonar_login} -Dsonar.projectKey="MyBILL-BPE-${CI_COMMIT_REF_NAME}" -Dsonar.sources=. -Dsonar.java.source="1.8" -Dsonar.java.binaries="mpal-core/target/classes,wsdlgenerator-maven-plugin/target/classes,bpe-core/target/classes,mpal-mock/target/classes" -Dsonar.java.libraries="build/dist/mybpe-r1.d2/3PP_JAR/3pp/"
+  tags:
+    - MyBILL_BUILD
+  allow_failure: true
+
+rpm package:
+  stage: rpm
+  only:
+    - pop-master
+    - pop-sp-integrate
+    - /^pop-sp[0-9][0-9][0-9]-dv/  
+    - /^pop-sp[0-9][0-9][0-9]-maintenance/
+    - tags
+  script:
+    - /entrypoint.sh 
+    - ~/csi-ansible/rundeck-wrappers/build-rpm.sh MyBILL-BPE MyBILL ${CI_PIPELINE_ID} 0 10.0  0
+  tags:
+    - RPM
+    
+single-domain-deploy:
+  stage: single domain - deploy
+  only:
+    - pop-master
+    - pop-sp-integrate
+    - /^pop-sp[0-9][0-9][0-9]-dv/
+    - /^pop-sp[0-9][0-9][0-9]-maintenance/
+    - tags
+  script:
+    - sleep 120 #this sleep is make the artifactory to update the metadata about its rpms
+    - source /tmp/env
+	## Run the rundeck job
+    - rd run -f -i d336e480-a84d-48b3-bc23-3b140916e1e1 -- -env ao-bs-post-cac3-MyBILL  -rpmname MyBILL-BPE-${CI_PIPELINE_ID}
+  tags:
+    - RUNDECK 
+    
+single-domain-smoketest:
+    stage: single domain - test
+    only: 
+    - pop-master
+    - pop-sp-integrate
+    - /^pop-sp[0-9][0-9][0-9]-dv/  
+    - /^pop-sp[0-9][0-9][0-9]-maintenance/
+    - tags
+    script:
+    - su - MyBILLtest -c "rm -rf ~/MyBILL-sanity" 
+    - su - MyBILLtest -c "git clone git@gitlab.lab.uprising.t-mobile.com:MyBILL/MyBILL-sanity.git"
+    tags:
+    - MyBILL_TEST
+    allow_failure: true
